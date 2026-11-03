@@ -1,0 +1,63 @@
+# Builds and publishes only the amdgpu extension with linux-firmware 20261019 GC 11.0.1/11.0.4
+# firmware (fixes Phoenix MES REMOVE_QUEUE GPU resets). Kernel modules come unchanged from
+# PKGS (must match the target Talos release so module signatures match the running kernel).
+name: amdgpu-fw
+on:
+  workflow_dispatch:
+  push:
+    branches: [amdgpu-fw-20261019]
+    paths: [drm/amdgpu/**, Pkgfile, Makefile, .github/workflows/amdgpu-fw.yaml]
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: amdgpu-fw
+  cancel-in-progress: true
+env:
+  TAG: v1.13.5-fw20261019
+  MEC_SHA256: b0a4006b3934adc1d7996e6d901206dea37203b4839debe4a5ed4e393a615cbb
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push amdgpu
+        run: |
+          make amdgpu PLATFORM=linux/amd64 PROGRESS=plain PUSH=true \
+            REGISTRY=ghcr.io USERNAME=${{ github.repository_owner }} TAG=${TAG}
+      - name: Resolve pushed image
+        id: img
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          m = json.load(open("_out/amdgpu.metadata.json"))
+          print("ref=" + m["image.name"].split(",")[0])
+          print("digest=" + m["containerimage.digest"])
+          PY
+      - name: Verify firmware in published image
+        run: |
+          ref="${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}"
+          docker pull "$ref"
+          cid=$(docker create "$ref" /none)
+          docker cp "$cid":/manifest.yaml - | tar -xO
+          docker cp "$cid":/rootfs/usr/lib/firmware/amdgpu/gc_11_0_1_mec.bin - | tar -xO | sha256sum | tee /tmp/sum
+          grep -q "^${MEC_SHA256} " /tmp/sum
+          docker rm "$cid" >/dev/null
+      - name: Summary
+        run: |
+          {
+            echo "### amdgpu extension published"
+            echo ""
+            echo '```'
+            echo "${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}"
+            echo '```'
+            echo "gc_11_0_1_mec.bin sha256: \`${MEC_SHA256}\` (verified)"
+          } >> "$GITHUB_STEP_SUMMARY"
