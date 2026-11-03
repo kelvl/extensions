@@ -20,6 +20,27 @@ steps:
       - |
         mkdir -p /rootfs/usr/lib/firmware
         cp -R -p /usr/lib/firmware/amdgpu /rootfs/usr/lib/firmware
+  # Overlay GC 11.0.1 (Phoenix, Radeon 780M/760M) and GC 11.0.4 firmware from linux-firmware
+  # 20261019 (commit 9ec083c3 "amdgpu: update gc 11.0.1 and 11.0.4 firmware"), which fixes
+  # "MES failed to respond to msg=REMOVE_QUEUE" GPU resets under ROCm compute.
+  # Same archive and hashes as siderolabs/pkgs main (linux-firmware/pkg.yaml).
+  - sources:
+      - url: https://gitlab.com/kernel-firmware/linux-firmware/-/archive/20261019/linux-firmware-20261019.tar.gz
+        destination: linux-firmware-20261019.tar.gz
+        sha256: 1e80b924afc2e78096361d58953a281f6fa8a5f6a7622f9a053004ff9cb9ac09
+        sha512: 5e70bdba8854e5c5995435bf16831e39e3a218b632fc05ab637599b796c696c84de453eb897cd9e5d9b48717e2b1292038c82c08213e47f5d09e8069aa6aea06
+    install:
+      - |
+        mkdir -p /tmp/lf
+        tar -xzf linux-firmware-20261019.tar.gz -C /tmp/lf --strip-components=1 \
+          --wildcards '*/amdgpu/gc_11_0_1_*' '*/amdgpu/gc_11_0_4_*'
+
+        # stock firmware is uncompressed .bin; remove every existing variant so exactly one copy remains
+        rm -f /rootfs/usr/lib/firmware/amdgpu/gc_11_0_1_* /rootfs/usr/lib/firmware/amdgpu/gc_11_0_4_*
+        install -m 0644 /tmp/lf/amdgpu/gc_11_0_1_* /tmp/lf/amdgpu/gc_11_0_4_* /rootfs/usr/lib/firmware/amdgpu/
+
+        echo "b0a4006b3934adc1d7996e6d901206dea37203b4839debe4a5ed4e393a615cbb  /rootfs/usr/lib/firmware/amdgpu/gc_11_0_1_mec.bin" | sha256sum -c -
+        rm -rf /tmp/lf
   - test:
       - |
         # https://www.kernel.org/doc/html/v4.15/admin-guide/module-signing.html#signed-modules-and-stripping
