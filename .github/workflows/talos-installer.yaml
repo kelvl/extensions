@@ -1,15 +1,10 @@
 # Builds a Talos installer image for node proxmox-sg-amd-0 (VM 100 talos-01) that mirrors its
-# Image Factory schematic f4ce4d92494bba971a3dfe1144f06ea9107dd57142dd875d076931bd7aab6480,
-# but with the custom amdgpu extension (linux-firmware 20261019 GC 11.0.1 firmware) instead of
+# Image Factory schematic f4ce4d92494bba971a3dfe1144f06ea9107dd57142dd875d076931bd7aab6480
+# (same extensions and kernel args; no amdgpu.cwsr_enable workaround — firmware fix only), but with the custom amdgpu extension (linux-firmware 20261019 GC 11.0.1 firmware) instead of
 # the stock siderolabs/amdgpu. Publishes to ghcr.io/<owner>/talos-installer.
 name: talos-installer
 on:
   workflow_dispatch:
-    inputs:
-      cwsr_disable:
-        description: "Also add amdgpu.cwsr_enable=0 (workaround on top of the firmware)"
-        type: boolean
-        default: false
 permissions:
   contents: read
   packages: write
@@ -36,9 +31,6 @@ jobs:
             --extra-kernel-arg -selinux
             --extra-kernel-arg selinux=0
           )
-          if [ "${{ inputs.cwsr_disable }}" = "true" ]; then
-            args+=(--extra-kernel-arg amdgpu.cwsr_enable=0)
-          fi
           docker run --rm -t -v "$PWD/_out:/out" -v /dev:/dev --privileged \
             ghcr.io/siderolabs/imager:${TALOS_VERSION} installer --arch amd64 \
             --system-extension-image "${AMD_UCODE_EXT}" \
@@ -49,9 +41,7 @@ jobs:
       - name: Push installer
         id: push
         run: |
-          suffix=amdgpu-fw20261019
-          [ "${{ inputs.cwsr_disable }}" = "true" ] && suffix="${suffix}-nocwsr"
-          ref="ghcr.io/${{ github.repository_owner }}/talos-installer:${TALOS_VERSION}-${suffix}"
+          ref="ghcr.io/${{ github.repository_owner }}/talos-installer:${TALOS_VERSION}-amdgpu-fw20261019"
           crane push _out/installer-amd64.tar "$ref"
           digest=$(crane digest "$ref")
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
@@ -60,6 +50,8 @@ jobs:
         run: |
           ref="${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
           crane config "$ref" | python3 -c 'import json,sys; c=json.load(sys.stdin); print("entrypoint:", c.get("config",{}).get("Entrypoint"))'
+          # firmware fix only: the cwsr workaround must not be in the kernel args
+          if grep -qi cwsr _out/imager.log; then echo "unexpected cwsr kernel arg"; exit 1; fi
           # imager log must mention all three extensions
           for e in amd-ucode kelvl/amdgpu qemu-guest-agent; do
             grep -q "$e" _out/imager.log || { echo "missing extension $e in imager log"; exit 1; }
