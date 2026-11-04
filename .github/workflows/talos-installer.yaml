@@ -1,6 +1,7 @@
 # Builds a Talos installer image for node proxmox-sg-amd-0 (VM 100 talos-01) that mirrors its
 # Image Factory schematic f4ce4d92494bba971a3dfe1144f06ea9107dd57142dd875d076931bd7aab6480
-# (same extensions and kernel args; no amdgpu.cwsr_enable workaround — firmware fix only), but with the custom amdgpu extension (linux-firmware 20261019 GC 11.0.1 firmware) instead of
+# (same extensions and kernel args except a working 32 GiB GTT setting; no amdgpu.cwsr_enable
+# workaround — firmware fix only), but with the custom amdgpu extension (linux-firmware 20261019 GC 11.0.1 firmware) instead of
 # the stock siderolabs/amdgpu. Publishes to ghcr.io/<owner>/talos-installer.
 name: talos-installer
 on:
@@ -30,7 +31,10 @@ jobs:
           args=(
             --extra-kernel-arg earlyprintk=ttyS0
             --extra-kernel-arg console=ttyS0
-            --extra-kernel-arg amd.gttsize=32768
+            # 32 GiB GTT for the iGPU (8388608 x 4 KiB pages). Replaces the schematic's
+            # amd.gttsize=32768, which no module reads (GTT stayed at the default half of RAM).
+            --extra-kernel-arg ttm.pages_limit=8388608
+            --extra-kernel-arg ttm.page_pool_size=8388608
             --extra-kernel-arg -selinux
             --extra-kernel-arg selinux=0
           )
