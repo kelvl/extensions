@@ -5,6 +5,9 @@
 name: talos-installer
 on:
   workflow_dispatch:
+  push:
+    branches: [amdgpu-fw-20261019]
+    paths: [.github/workflows/talos-installer.yaml]
 permissions:
   contents: read
   packages: write
